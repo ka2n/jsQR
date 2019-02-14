@@ -180,10 +180,15 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
     chunks: [],
   };
 
+  let hiddenTerminated = false;
+
   while (stream.available() >= 4) {
     const mode = stream.readBits(4);
     if (mode === ModeByte.Terminator) {
-      return result;
+      if (hiddenTerminated) {
+        return result;
+      }
+      hiddenTerminated = true
     } else if (mode === ModeByte.ECI) {
       if (stream.readBits(1) === 0) {
         result.chunks.push({
@@ -201,6 +206,7 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
           assignmentNumber: stream.readBits(21),
         });
       } else {
+        if (hiddenTerminated) return result;
         // ECI data seems corrupted
         result.chunks.push({
           type: Mode.ECI,
@@ -209,7 +215,7 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
       }
     } else if (mode === ModeByte.Numeric) {
       const numericResult = decodeNumeric(stream, size);
-      result.text += numericResult.text;
+      result.text += (hiddenTerminated ? String.fromCharCode(0) : "") + numericResult.text;
       result.bytes.push(...numericResult.bytes);
       result.chunks.push({
         type: Mode.Numeric,
@@ -217,7 +223,7 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
       });
     } else if (mode === ModeByte.Alphanumeric) {
       const alphanumericResult = decodeAlphanumeric(stream, size);
-      result.text += alphanumericResult.text;
+      result.text += (hiddenTerminated ? String.fromCharCode(0) : "") + alphanumericResult.text;
       result.bytes.push(...alphanumericResult.bytes);
       result.chunks.push({
         type: Mode.Alphanumeric,
@@ -225,7 +231,7 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
       });
     } else if (mode === ModeByte.Byte) {
       const byteResult = decodeByte(stream, size);
-      result.text += byteResult.text;
+      result.text += (hiddenTerminated ? String.fromCharCode(0) : "") + byteResult.text;
       result.bytes.push(...byteResult.bytes);
       result.chunks.push({
         type: Mode.Byte,
@@ -234,7 +240,7 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
       });
     } else if (mode === ModeByte.Kanji) {
       const kanjiResult = decodeKanji(stream, size);
-      result.text += kanjiResult.text;
+      result.text += (hiddenTerminated ? String.fromCharCode(0) : "") + kanjiResult.text;
       result.bytes.push(...kanjiResult.bytes);
       result.chunks.push({
         type: Mode.Kanji,
@@ -245,7 +251,7 @@ export function decode(data: Uint8ClampedArray, version: number): DecodedQR {
   }
 
   // If there is no data left, or the remaining bits are all 0, then that counts as a termination marker
-  if (stream.available() === 0 || stream.readBits(stream.available()) === 0) {
+  if (hiddenTerminated || stream.available() === 0 || stream.readBits(stream.available()) === 0) {
     return result;
   }
 }
